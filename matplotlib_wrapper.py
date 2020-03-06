@@ -2,15 +2,15 @@ import numpy as np
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-from qtpy import QtGui
+from qtpy import QtWidgets
 
-class PlotWrapper(QtGui.QWidget):
+class PlotWrapper(QtWidgets.QWidget):
     def __init__(self, plotParams, parent=None):     
         super(PlotWrapper, self).__init__(parent)
         self.setWindowTitle('LSL Plot ' + plotParams["name"])
         self.figure = Figure()
         self.canvas = FigureCanvas(self.figure)
-        layout = QtGui.QVBoxLayout()
+        layout = QtWidgets.QVBoxLayout()
         layout.addWidget(self.canvas)
         self.setLayout(layout)
         self.ax = self.figure.add_subplot(111)

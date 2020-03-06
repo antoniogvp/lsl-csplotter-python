@@ -1,6 +1,6 @@
 import numpy as np
 from pylsl import StreamInlet, resolve_stream, local_clock
-from pyqtgraph.Qt import QtCore, QtGui
+from qtpy import QtCore, QtGui, QtWidgets
 from stream_viewer import Dialog
 from markers_dialog import DialogMarkers
 from scipy.signal import lfilter
@@ -112,7 +112,7 @@ class Plotter:
             
             samples_to_get = min(np.shape(self.str_buffer["buffer"])[1], round(self.str_buffer["srate"]*self.plot_duration));
             channels_to_get = np.arange(self.channel_min-1,self.channel_max)
-            samples_indexes = np.remainder(np.arange(self.str_buffer["nsamples"]-samples_to_get,self.str_buffer["nsamples"],self.str_buffer["srate"]/self.windowParameters["sampling_rate"]),np.shape(self.str_buffer["buffer"])[1]).astype(int)
+            samples_indexes = np.remainder(np.arange(self.str_buffer["nsamples"]-samples_to_get,self.str_buffer["nsamples"],int(self.str_buffer["srate"]/self.windowParameters["sampling_rate"])),np.shape(self.str_buffer["buffer"])[1])
             self.yData = self.str_buffer["buffer"][channels_to_get[:,np.newaxis], samples_indexes[np.newaxis,:]]
             
             if len(np.shape(self.yData))==1:
@@ -262,15 +262,14 @@ def main():
     win = Start()
     import sys
     if (((sys.flags.interactive != 1) or not hasattr(QtCore, 'PYQT_VERSION')) ):
-        QtGui.QApplication.instance().exec_()
+        QtWidgets.QApplication.instance().exec_()
     return win 
 
 if __name__ == '__main__':
     import sys
     win = Start()
-    app = QtGui.QApplication(sys.argv)
+    app = QtWidgets.QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(True)
     if (((sys.flags.interactive != 1) or not hasattr(QtCore, 'PYQT_VERSION')) ):
         app.instance().exec_()
     sys.exit(0)
-
