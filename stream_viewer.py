@@ -38,6 +38,7 @@ class Dialog(QtWidgets.QDialog, Ui_MainWindow):
         windowParameters["common_average"] = self.checkBox_commonAverage.isChecked()
         windowParameters["standardize"] = self.checkBox_standardize.isChecked()
         windowParameters["zero_mean"] = self.checkBox_zeroMean.isChecked()
+        windowParameters["plot_library"] = self.comboBox_plotLib.currentIndex()
         
         return windowParameters
     
