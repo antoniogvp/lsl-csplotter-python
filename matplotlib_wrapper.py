@@ -28,6 +28,7 @@ class PlotWrapper(QtWidgets.QWidget):
         self.ax.set(xlim=(-plotParams["init_time_range"], 0.0), ylim=(-1.0 * plotParams["chann_num"], 1.0), 
                xlabel='Time (s)', ylabel='Activation', yticks = tick_pos,
                yticklabels = tick_name);
+        self.ax.set_title(plotParams["name"], y = 1.04)
         for ch_ix in range(plotParams["chann_num"]):
             line, = self.ax.plot([],[])
             self.curves.append(line)
@@ -36,11 +37,11 @@ class PlotWrapper(QtWidgets.QWidget):
         self.show()
         
     def getWindow(self):
-        return self.figure
+        return self
     
     def updatePlotData(self, timeData, yData, scale):
         for ch in range(np.shape(yData)[0]):
-            self.curves[ch].set_data(timeData, ((yData[ch,:])/scale)-ch)
+            self.curves[ch].set_data(timeData, ((yData[ch,:])/scale)-np.shape(yData)[0]+ch+1)
         self.canvas.draw()
         self.canvas.flush_events()
             
@@ -54,15 +55,15 @@ class PlotWrapper(QtWidgets.QWidget):
         eventParam["line"] = markerLine
         eventParam["text"] = markerText
         self.markerList.append(eventParam)
-        self.canvas.draw()
-        self.canvas.flush_events()
+        #self.canvas.draw()
+        #self.canvas.flush_events()
         
     def deleteMarker(self, markerNum):
         self.markerList[markerNum]["line"].remove()
         self.markerList[markerNum]["text"].remove()
         self.markerList.remove(self.markerList[markerNum])
-        self.canvas.draw()
-        self.canvas.flush_events()
+        #self.canvas.draw()
+        #self.canvas.flush_events()
         
     def setNewValMarker(self, markerNum, newVal, plot_duration):
         self.markerList[markerNum]["text"].set_x(newVal)

@@ -1,9 +1,9 @@
 import numpy as np
 from pylsl import StreamInlet, resolve_stream, local_clock
-from qtpy import QtCore, QtGui, QtWidgets
+from qtpy import QtCore, QtWidgets
 from stream_viewer import Dialog
 from markers_dialog import DialogMarkers
-from scipy.signal import lfilter
+from scipy.signal import lfilter, lfilter_zi
 from filter_BP import BandPassFilter
 
 try:
@@ -20,7 +20,7 @@ def classifyStreamInlet(streams):
     
     for stream in streams:
         stream_type = StreamInlet(stream).info().type()
-        if stream_type == "Markers" or stream_type == "Events":
+        if stream_type == "Markers" or stream_type == "Events" or stream_type == "Marker":
             sortedStreams["discrete"].append(stream)
             discStreamsNames.append(StreamInlet(stream).info().name())
         else:
@@ -35,7 +35,7 @@ class Plotter:
         self.windowParameters = windowParameters
 
         # create a new inlet to read from the stream
-        self.inlet = StreamInlet(sortedStreams["continuous"][windowParameters["stream_num"]])
+        self.inlet = StreamInlet(sortedStreams["continuous"][windowParameters["stream_num"]],max_buflen=windowParameters["max_time_range"])
         
         # Marker streams
         self.eventInlet = []
@@ -66,60 +66,77 @@ class Plotter:
                       "chann_num": self.channel_num, "ticks": ticks}
         self.plotWrapper = PlotWrapper(plotParams)
         self.win = self.plotWrapper.getWindow()
+        self.timerPlot.start(int(1000.0/self.windowParameters["refresh_rate"]))
         
     def configureTimers(self):
-        self.timerData = QtCore.QTimer()
-        self.timerData.timeout.connect(self.updateData)
-        self.timerData.start(1000.0/self.windowParameters["sampling_rate"])
-        
         self.timerPlot = QtCore.QTimer()
-        self.timerPlot.timeout.connect(self.updatePlot)
-        self.timerPlot.start(1000.0/self.windowParameters["refresh_rate"])
+        self.timerPlot.timeout.connect(self.updateData)
     
     def create_buffer(self):
         str_buffer={}
         if self.inlet.info().nominal_srate() > 0:
             str_buffer["srate"] = self.inlet.info().nominal_srate()
+            if str_buffer["srate"] < self.windowParameters["sampling_rate"]:
+                self.windowParameters["sampling_rate"] = str_buffer["srate"]
+                print("Warning. User-specified sampling rate was higher than stream rate.")
         else:
             str_buffer["srate"] = self.windowParameters["sampling_rate"]
         
         str_buffer["buffer"] = np.zeros((self.inlet.info().channel_count(), 
                                          int(max(max(self.windowParameters["max_time_range"], self.windowParameters["init_time_range"])*str_buffer["srate"],100))))
         str_buffer["nsamples"] = 0
+        
+        if self.B.size != 0:
+            filter_init_z = lfilter_zi(self.B,np.asarray(1))
+            self.z = np.zeros([self.inlet.info().channel_count(),len(filter_init_z)])
+            for n in range(self.inlet.info().channel_count()):
+                self.z[n,:] = filter_init_z[:]
+        
         return str_buffer
 
     def updateData(self):
         self.updateDataContinuousStream()
         self.updateDataEvents()
+        self.updatePlot()
         
     def updateDataContinuousStream(self):
         # Read data from the inlet. Use a timeout of 0.0 so we don't block GUI interaction.
-        chunk, timestamps = self.inlet.pull_chunk(timeout=0.0)
+        chunk, timestamps = self.inlet.pull_chunk()
         if timestamps:
+            self.datareceived = True
             ts = np.asarray(timestamps)
             y = np.asarray(chunk).transpose()
+            y[np.logical_not(np.isfinite(y))] = 0.0
             
             if len(np.shape(y))==1:
                 y=y[np.newaxis,:]
             
             if self.B.size != 0:
-                y = lfilter(self.B,np.asarray(1),y,0)
-                self.datareceived = True
+                if self.z is None:
+                    self.z = lfilter_zi(self.B,np.asarray(1))
+                filteredSample, self.z = lfilter(self.B,np.asarray(1),y, zi = self.z)
+                y = filteredSample
             
             # append to buffer
+            buffersize = np.shape(self.str_buffer["buffer"])[1]
+            nsamples = self.str_buffer["nsamples"]
+            #print(nsamples)
+            self.str_buffer["buffer"][:, np.remainder(np.arange(nsamples, nsamples + np.shape(y)[1]), buffersize)] = y
             self.str_buffer["nsamples"] += np.shape(y)[1]
-            self.str_buffer["buffer"][:, np.remainder(np.arange(self.str_buffer["nsamples"], self.str_buffer["nsamples"] + np.shape(y)[1]), np.shape(self.str_buffer["buffer"])[1])] = y
+            #print(np.remainder(np.arange(nsamples, nsamples + np.shape(y)[1]), np.shape(self.str_buffer["buffer"])[1]))
             
-            samples_to_get = min(np.shape(self.str_buffer["buffer"])[1], round(self.str_buffer["srate"]*self.plot_duration));
+            samples_to_get = min(np.shape(self.str_buffer["buffer"])[1], int(round(self.str_buffer["srate"]*self.plot_duration)))
             channels_to_get = np.arange(self.channel_min-1,self.channel_max)
-            samples_indexes = np.remainder(np.arange(self.str_buffer["nsamples"]-samples_to_get,self.str_buffer["nsamples"],int(self.str_buffer["srate"]/self.windowParameters["sampling_rate"])),np.shape(self.str_buffer["buffer"])[1])
+            samples_indexes = np.remainder(np.arange(nsamples-samples_to_get,nsamples,int(self.str_buffer["srate"]/self.windowParameters["sampling_rate"])),np.shape(self.str_buffer["buffer"])[1])
+            #print(samples_indexes[-10:-1])
+            #print(self.str_buffer["buffer"][1,samples_indexes[-10:-1]])
             self.yData = self.str_buffer["buffer"][channels_to_get[:,np.newaxis], samples_indexes[np.newaxis,:]]
             
             if len(np.shape(self.yData))==1:
                 self.yData = self.yData[np.newaxis,:]
                 
             [nchan, npoints] = np.shape(self.yData)
-            xmax = np.amax(ts) - local_clock();
+            xmax = np.amax(ts) - local_clock()
             xmin = xmax - (samples_to_get-1)/self.str_buffer["srate"]
             
             ## POST-PROCESS ##
@@ -133,7 +150,6 @@ class Plotter:
                 self.zero_average()
                 
             self.timeData = np.linspace(xmin,xmax,npoints)
-            self.datareceived = True
         
     def updateDataEvents(self):
         for stream in self.eventInlet:
@@ -166,7 +182,6 @@ class Plotter:
                 self.plotWrapper.addMarker(event, clock_val)
                 
             self.eventList.clear()
-            
                 
     def getHighestChannel(self, channel_count):
         if(channel_count < self.windowParameters["channel_max"]):
@@ -184,7 +199,7 @@ class Plotter:
         for k in range(self.inlet.info().channel_count()):
             if(k>=self.channel_min-1 and k<self.channel_max):
                 if ch.child_value("label") == "":
-                    markers.append("Ch" + str(k))
+                    markers.append("Ch" + str(k+1))
                 else:
                     markers.append(ch.child_value("label"))
                 chanpos.append(-self.channel_num+chancounter+1)
@@ -209,23 +224,28 @@ class Plotter:
         self.yData = self.yData-(np.mean(self.yData,axis=1)[:,np.newaxis])
         
     def decr_datascale(self, k):
-        self.scale = self.scale*1.1
+        if self.win.isActiveWindow():
+            self.scale = self.scale*1.1
     
     def incr_datascale(self, k):
-        self.scale = self.scale*0.9
+        if self.win.isActiveWindow():
+            self.scale = self.scale*0.9
     
     def decr_timerange(self, k):
-        newAxisVal = self.plotWrapper.decr_timerange()
-        self.plot_duration = -newAxisVal
+        if self.win.isActiveWindow():
+            newAxisVal = self.plotWrapper.decr_timerange()
+            self.plot_duration = -newAxisVal
     
     def incr_timerange(self, k):
-        newAxisVal = self.plotWrapper.incr_timerange()
-        self.plot_duration = -newAxisVal
+        if self.win.isActiveWindow():
+            newAxisVal = self.plotWrapper.incr_timerange()
+            self.plot_duration = -newAxisVal
         
     def getWindow(self):
         return self.win
 
 def Start():
+    win = None
     streams = resolve_stream()
     
     sortedStreams, contStreamsNames, discStreamsNames = classifyStreamInlet(streams)
@@ -256,20 +276,20 @@ def Start():
         else:
             print("Plot window was not created.")
         
-    return win
+    return win, p
 
 def main():
     win = Start()
     import sys
     if (((sys.flags.interactive != 1) or not hasattr(QtCore, 'PYQT_VERSION')) ):
         QtWidgets.QApplication.instance().exec_()
-    return win 
+    return win, p
 
 if __name__ == '__main__':
     import sys
-    win = Start()
     app = QtWidgets.QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(True)
+    win, p = Start()
     if (((sys.flags.interactive != 1) or not hasattr(QtCore, 'PYQT_VERSION')) ):
         app.instance().exec_()
     sys.exit(0)

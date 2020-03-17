@@ -7,6 +7,7 @@ class PlotWrapper:
         self.win = pg.GraphicsWindow()
         self.win.setWindowTitle('LSL Plot ' + plotParams["name"])
         self.plt = self.win.addPlot()
+        self.plt.setTitle(plotParams["name"])
         self.plt.setLimits(xMin=-plotParams["max_time_range"], xMax=0.0, yMin=-1.0 * (plotParams["chann_num"] + 1.0), yMax=1.0)
         self.plt.setXRange(-plotParams["init_time_range"], 0.0, padding=0)
         self.plt.setYRange(-1.0 * plotParams["chann_num"], 1.0, padding=0)
@@ -28,7 +29,7 @@ class PlotWrapper:
     
     def updatePlotData(self, timeData, yData, scale):
         for ch in range(np.shape(yData)[0]):
-            self.curves[ch].setData(timeData, ((yData[ch,:])/scale)-ch)
+            self.curves[ch].setData(timeData, ((yData[ch,:])/scale)-np.shape(yData)[0]+ch+1)
             
     def addMarker(self, event, clock_val):
         eventParam = {}
